@@ -1,38 +1,77 @@
-use std::io::{Cursor, Read, Seek};
+use std::io::{Cursor, Read};
 
 use image::{
     error::{DecodingError, ImageFormatHint},
     ColorType, ImageDecoder, ImageError, ImageFormat, ImageResult,
 };
 
+use winnow::{
+    binary::{be_u32, u8},
+    combinator::preceded,
+};
+use winnow::{PResult, Parser};
+
 #[cfg(test)]
 mod tests;
+
+const QOI_HEADER_LENGTH: usize = 14;
 
 pub struct QoiDecoder<R> {
     reader: R,
     header: Header,
 }
 
-impl<R: Read + Seek> QoiDecoder<R> {
+impl<R: Read> QoiDecoder<R> {
     pub fn new(mut reader: R) -> ImageResult<Self> {
+        let mut header_buf = [0u8; QOI_HEADER_LENGTH];
+        reader
+            .read_exact(&mut header_buf)
+            .map_err(ImageError::IoError)?;
         Ok(QoiDecoder {
-            header: parse_image_header(&mut reader).map_err(decoding_error)?,
+            header: parse_image_header(&header_buf).map_err(decoding_error)?,
             reader,
         })
     }
 }
 
-// TODO: add proper error type
-fn parse_image_header(reader: impl Read) -> Result<Header, &'static str> {
+pub fn parse_image_header(header_bytes: &[u8]) -> Result<Header, String> {
+    header_parser
+        .parse(header_bytes)
+        .map_err(|err| err.to_string())
+}
+
+fn header_parser(input: &mut &[u8]) -> PResult<Header> {
+    preceded(
+        b"qoif",
+        (
+            be_u32,
+            be_u32,
+            u8.verify_map(|channels| match channels {
+                3 => Some(Channels::Rgb),
+                4 => Some(Channels::Rgba),
+                _ => None,
+            }),
+            u8.verify_map(|colorspace| match colorspace {
+                0 => Some(Colorspace::Srgb),
+                1 => Some(Colorspace::Linear),
+                _ => None,
+            }),
+        ),
+    )
+    .map(|(width, height, channels, colorspace)| Header {
+        width,
+        height,
+        channels,
+        colorspace,
+    })
+    .parse_next(input)
+}
+
+fn parse_image_content(_content_bytes: &mut [u8], _channels: Channels) -> Result<Vec<u8>, String> {
     todo!()
 }
 
-// TODO: add proper error type
-fn parse_image_content(reader: impl Read) -> Result<Vec<u8>, &'static str> {
-    todo!()
-}
-
-impl<R: Read + Seek> ImageDecoder<'_> for QoiDecoder<R> {
+impl<R: Read> ImageDecoder<'_> for QoiDecoder<R> {
     type Reader = Cursor<Vec<u8>>;
 
     fn color_type(&self) -> ColorType {
@@ -46,21 +85,26 @@ impl<R: Read + Seek> ImageDecoder<'_> for QoiDecoder<R> {
         (self.header.width, self.header.height)
     }
 
-    fn into_reader(self) -> ImageResult<Self::Reader> {
-        let raw_content = parse_image_content(self.reader).map_err(decoding_error)?;
+    fn into_reader(mut self) -> ImageResult<Self::Reader> {
+        let mut input_buf = vec![];
+        self.reader
+            .read_to_end(&mut input_buf)
+            .map_err(ImageError::IoError)?;
+        let raw_content =
+            parse_image_content(&mut input_buf, self.header.channels).map_err(decoding_error)?;
         Ok(Cursor::new(raw_content))
     }
 }
 
-// TODO: replace with proper error type
-fn decoding_error(err: &str) -> ImageError {
+fn decoding_error(err: String) -> ImageError {
     ImageError::Decoding(DecodingError::new(
         ImageFormatHint::Exact(ImageFormat::Qoi),
         err,
     ))
 }
 
-struct Header {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Header {
     width: u32,
     height: u32,
     channels: Channels,
