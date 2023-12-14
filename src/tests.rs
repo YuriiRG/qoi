@@ -44,6 +44,14 @@ fn decode_valid_header() {
 }
 
 #[test]
+fn decode_real_image_header() {
+    let image_bytes = include_bytes!("../test_images/qoi_logo.qoi").as_slice();
+    let decoder = QoiDecoder::new(Cursor::new(image_bytes)).unwrap();
+    assert_eq!(decoder.dimensions(), (448, 220));
+    assert_eq!(decoder.color_type(), ColorType::Rgba8);
+}
+
+#[test]
 #[should_panic]
 fn decode_invalid_colorspace() {
     let header = [
