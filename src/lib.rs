@@ -35,36 +35,36 @@ impl<R: Read> QoiDecoder<R> {
 }
 
 pub fn parse_image_header(header_bytes: &[u8]) -> Result<Header, String> {
+    fn header_parser(input: &mut &[u8]) -> PResult<Header> {
+        preceded(
+            b"qoif",
+            (
+                be_u32,
+                be_u32,
+                u8.verify_map(|channels| match channels {
+                    3 => Some(Channels::Rgb),
+                    4 => Some(Channels::Rgba),
+                    _ => None,
+                }),
+                u8.verify_map(|colorspace| match colorspace {
+                    0 => Some(Colorspace::Srgb),
+                    1 => Some(Colorspace::Linear),
+                    _ => None,
+                }),
+            ),
+        )
+        .map(|(width, height, channels, colorspace)| Header {
+            width,
+            height,
+            channels,
+            colorspace,
+        })
+        .parse_next(input)
+    }
+
     header_parser
         .parse(header_bytes)
         .map_err(|err| err.to_string())
-}
-
-fn header_parser(input: &mut &[u8]) -> PResult<Header> {
-    preceded(
-        b"qoif",
-        (
-            be_u32,
-            be_u32,
-            u8.verify_map(|channels| match channels {
-                3 => Some(Channels::Rgb),
-                4 => Some(Channels::Rgba),
-                _ => None,
-            }),
-            u8.verify_map(|colorspace| match colorspace {
-                0 => Some(Colorspace::Srgb),
-                1 => Some(Colorspace::Linear),
-                _ => None,
-            }),
-        ),
-    )
-    .map(|(width, height, channels, colorspace)| Header {
-        width,
-        height,
-        channels,
-        colorspace,
-    })
-    .parse_next(input)
 }
 
 fn parse_image_content(_content_bytes: &mut [u8], _channels: Channels) -> Result<Vec<u8>, String> {
