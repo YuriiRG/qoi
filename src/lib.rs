@@ -7,7 +7,9 @@ use image::{
 
 use winnow::{
     binary::{be_u32, u8},
-    combinator::preceded,
+    combinator::{alt, preceded, repeat},
+    token::tag,
+    Stateful,
 };
 use winnow::{PResult, Parser};
 
@@ -67,8 +69,111 @@ pub fn parse_image_header(header_bytes: &[u8]) -> Result<Header, String> {
         .map_err(|err| err.to_string())
 }
 
-fn parse_image_content(_content_bytes: &mut [u8], _channels: Channels) -> Result<Vec<u8>, String> {
-    todo!()
+fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u8>, String> {
+    type Stream<'is> = Stateful<&'is [u8], ParserState>;
+    fn hash_pixel(pixel: Pixel) -> usize {
+        ((pixel.red * 3 + pixel.green * 5 + pixel.blue * 7 + pixel.alpha * 11) % 64).into()
+    }
+
+    fn qoi_op_rgb(i: &mut Stream) -> PResult<Pixel> {
+        let prev_alpha = i.state.prev.alpha;
+        let pixel = preceded(
+            tag(&[0b11111110]),
+            (u8, u8, u8).map(|(red, green, blue)| Pixel {
+                red,
+                green,
+                blue,
+                alpha: prev_alpha,
+            }),
+        )
+        .parse_next(i)?;
+        i.state.prev = pixel;
+        i.state.seen[hash_pixel(pixel)] = pixel;
+        Ok(pixel)
+    }
+
+    fn qoi_op_rgba(i: &mut Stream) -> PResult<Pixel> {
+        let pixel = preceded(
+            tag(&[0b11111111]),
+            (u8, u8, u8, u8).map(|(red, green, blue, alpha)| Pixel {
+                red,
+                green,
+                blue,
+                alpha,
+            }),
+        )
+        .parse_next(i)?;
+        i.state.prev = pixel;
+        i.state.seen[hash_pixel(pixel)] = pixel;
+        Ok(pixel)
+    }
+
+    fn qoi_op_index(i: &mut Stream) -> PResult<Pixel> {
+        let seen_pixels = i.state.seen;
+        let pixel = u8
+            .verify_map(|byte| {
+                if (byte & 0b11000000) >> 6 == 0b00 {
+                    Some(seen_pixels[usize::from(byte)])
+                } else {
+                    None
+                }
+            })
+            .parse_next(i)?;
+        i.state.prev = pixel;
+        i.state.seen[hash_pixel(pixel)] = pixel;
+        Ok(pixel)
+    }
+
+    fn pixels_parser(i: &mut Stream) -> PResult<Vec<Pixel>> {
+        repeat(0.., alt((qoi_op_rgb, qoi_op_rgba, qoi_op_index))).parse_next(i)
+    }
+
+    let default_state = ParserState {
+        prev: Pixel {
+            red: 0,
+            green: 0,
+            blue: 0,
+            alpha: 255,
+        },
+        seen: [Default::default(); 64],
+    };
+
+    let pixels = pixels_parser
+        .parse(Stream {
+            input: content_bytes,
+            state: default_state,
+        })
+        .map_err(|err| err.to_string())?;
+
+    let mut result = Vec::with_capacity(match header.channels {
+        Channels::Rgba => header.height * header.width * 4,
+        Channels::Rgb => header.height * header.width * 3,
+    } as usize);
+
+    for pixel in pixels {
+        result.push(pixel.red);
+        result.push(pixel.green);
+        result.push(pixel.blue);
+        if let Channels::Rgb = header.channels {
+            result.push(pixel.alpha);
+        }
+    }
+
+    Ok(result)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ParserState {
+    prev: Pixel,
+    seen: [Pixel; 64],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+struct Pixel {
+    red: u8,
+    green: u8,
+    blue: u8,
+    alpha: u8,
 }
 
 impl<R: Read> ImageDecoder<'_> for QoiDecoder<R> {
@@ -90,8 +195,7 @@ impl<R: Read> ImageDecoder<'_> for QoiDecoder<R> {
         self.reader
             .read_to_end(&mut input_buf)
             .map_err(ImageError::IoError)?;
-        let raw_content =
-            parse_image_content(&mut input_buf, self.header.channels).map_err(decoding_error)?;
+        let raw_content = parse_image_content(&input_buf, self.header).map_err(decoding_error)?;
         Ok(Cursor::new(raw_content))
     }
 }
