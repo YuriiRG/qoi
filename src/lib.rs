@@ -124,8 +124,37 @@ fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u8>, 
         Ok(pixel)
     }
 
+    fn qoi_op_diff(i: &mut Stream) -> PResult<Pixel> {
+        let prev = i.state.prev;
+
+        let (dr, dg, db) = u8
+            .verify_map(|byte| {
+                if (byte & 0b11000000) >> 6 == 0b01 {
+                    Some((
+                        ((byte & 0b00110000) >> 4) as i16 - 2,
+                        ((byte & 0b00001100) >> 2) as i16 - 2,
+                        (byte & 0b00000011) as i16 - 2,
+                    ))
+                } else {
+                    None
+                }
+            })
+            .parse_next(i)?;
+        let pixel = Pixel {
+            red: (prev.red as i16 + dr) as u8,
+            green: (prev.green as i16 + dg) as u8,
+            blue: (prev.blue as i16 + db) as u8,
+            alpha: prev.alpha,
+        };
+        Ok(pixel)
+    }
+
     fn pixels_parser(i: &mut Stream) -> PResult<Vec<Pixel>> {
-        repeat(0.., alt((qoi_op_rgb, qoi_op_rgba, qoi_op_index))).parse_next(i)
+        repeat(
+            0..,
+            alt((qoi_op_rgb, qoi_op_rgba, qoi_op_index, qoi_op_diff)),
+        )
+        .parse_next(i)
     }
 
     let default_state = ParserState {
