@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 image = { version = "0.24.7", default-features = false }
 thiserror = "1.0.50"
-winnow = "0.5.28"
 
 [dev-dependencies]
 image = { version = "0.24.7", default-features = false, features = [
