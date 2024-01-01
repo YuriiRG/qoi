@@ -36,10 +36,7 @@ pub fn parse_image_header(header_bytes: &[u8]) -> Result<Header, DecoderError> {
 }
 
 pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u8>, DecoderError> {
-    let mut pixels = Vec::with_capacity(match header.channels {
-        Channels::Rgba => header.height * header.width * 4,
-        Channels::Rgb => header.height * header.width * 3,
-    } as usize);
+    let mut pixels = Vec::with_capacity((header.height * header.width) as usize);
 
     let mut bytes_left = content_bytes;
 
@@ -65,12 +62,35 @@ pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u
                 qoi_op_diff,
                 qoi_op_luma,
                 qoi_op_run,
+                qoi_op_end,
             ],
         )
         .map_err(|err| match err {
             ParserError::Recoverable => DecoderError::InvalidPixel,
             ParserError::Invalid => DecoderError::TooFewPixels,
         })?;
+    }
+
+    if pixels.len() < (header.width * header.height) as usize {
+        return Err(DecoderError::TooFewPixels);
+    }
+
+    if pixels.len() > (header.width * header.height) as usize {
+        return Err(DecoderError::TooManyPixels);
+    }
+
+    let mut result = Vec::with_capacity(match header.channels {
+        Channels::Rgba => header.height * header.width * 4,
+        Channels::Rgb => header.height * header.width * 3,
+    } as usize);
+
+    for pixel in pixels {
+        result.push(pixel.red);
+        result.push(pixel.green);
+        result.push(pixel.blue);
+        if let Channels::Rgb = header.channels {
+            result.push(pixel.alpha);
+        }
     }
 
     Ok(vec![])
@@ -204,6 +224,16 @@ fn qoi_op_run(
     Ok(())
 }
 
+fn qoi_op_end(
+    input: &mut &[u8],
+    #[allow(clippy::ptr_arg)] _pixels: &mut Vec<Pixel>,
+    _state: &mut ParserState,
+) -> Result<(), ParserError> {
+    tag(&[0u8, 0, 0, 0, 0, 0, 0, 1], input)?;
+
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug)]
 struct ParserState {
     prev: Pixel,
@@ -276,6 +306,7 @@ pub enum DecoderError {
     TooShortHeader,
     InvalidPixel,
     TooFewPixels,
+    TooManyPixels,
 }
 
 impl Display for DecoderError {
