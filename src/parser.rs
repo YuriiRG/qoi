@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, iter::repeat};
 
 use thiserror::Error;
 
@@ -64,6 +64,7 @@ pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u
                 qoi_op_index,
                 qoi_op_diff,
                 qoi_op_luma,
+                qoi_op_run,
             ],
         )
         .map_err(|err| match err {
@@ -125,9 +126,11 @@ fn qoi_op_index(
     if (byte & 0b11000000) >> 6 != 0b00 {
         return Err(ParserError::Recoverable);
     }
+
     let pixel = state.seen[byte as usize];
     pixels.push(pixel);
     update_state(pixel, state);
+
     Ok(())
 }
 
@@ -140,6 +143,7 @@ fn qoi_op_diff(
     if (byte & 0b11000000) >> 6 != 0b01 {
         return Err(ParserError::Recoverable);
     }
+
     let dr = ((byte & 0b00110000) >> 4).wrapping_sub(2);
     let dg = ((byte & 0b00001100) >> 2).wrapping_sub(2);
     let db = (byte & 0b00000011).wrapping_sub(2);
@@ -151,6 +155,7 @@ fn qoi_op_diff(
     };
     pixels.push(pixel);
     update_state(pixel, state);
+
     Ok(())
 }
 
@@ -163,7 +168,9 @@ fn qoi_op_luma(
     if (byte1 & 0b11000000) >> 6 != 0b10 {
         return Err(ParserError::Recoverable);
     }
+
     let dg = (byte1 & 0b00111111).wrapping_sub(32);
+
     let byte2 = u8(input)?;
     let dr = dg.wrapping_add((byte2 & 0b11110000 >> 4).wrapping_sub(8));
     let db = dg.wrapping_add((byte2 & 0b00001111).wrapping_sub(8));
@@ -177,6 +184,23 @@ fn qoi_op_luma(
 
     pixels.push(pixel);
     update_state(pixel, state);
+
+    Ok(())
+}
+
+fn qoi_op_run(
+    input: &mut &[u8],
+    pixels: &mut Vec<Pixel>,
+    state: &mut ParserState,
+) -> Result<(), ParserError> {
+    let byte = u8(input)?;
+    if (byte & 0b11000000) >> 6 != 0b11 {
+        return Err(ParserError::Recoverable);
+    }
+
+    let run = byte & 0b00111111;
+    pixels.extend(repeat(state.prev).take(run as usize));
+
     Ok(())
 }
 
