@@ -32,12 +32,6 @@ impl<R: Read> QoiDecoder<R> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct ParserState {
-    prev: Pixel,
-    seen: [Pixel; 64],
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 struct Pixel {
     red: u8,

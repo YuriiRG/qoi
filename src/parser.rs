@@ -53,47 +53,68 @@ pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u
         seen: [Default::default(); 64],
     };
 
-    fn parse_test(
-        input: &mut &[u8],
-        pixels: &mut Vec<Pixel>,
-        state: &mut ParserState,
-    ) -> Result<(), ParserError> {
-        pixels.push(Pixel {
-            red: input[0],
-            green: input[0],
-            blue: input[0],
-            alpha: input[0],
-        });
-        Ok(())
+    while !bytes_left.is_empty() {
+        alt(&mut bytes_left, &mut pixels, &mut state, [qoi_op_rgb]).map_err(|err| match err {
+            ParserError::Recoverable => DecoderError::InvalidPixel,
+            ParserError::Invalid => DecoderError::TooFewPixels,
+        })?;
     }
-    fn parse_test2(
-        input: &mut &[u8],
-        pixels: &mut Vec<Pixel>,
-        state: &mut ParserState,
-    ) -> Result<(), ParserError> {
-        pixels.push(Pixel {
-            red: input[0],
-            green: input[0],
-            blue: input[0],
-            alpha: input[0],
-        });
-        Ok(())
-    }
-
-    alt(
-        &mut bytes_left,
-        &mut pixels,
-        &mut state,
-        [parse_test, parse_test2],
-    );
 
     Ok(vec![])
+}
+
+fn qoi_op_rgb(
+    input: &mut &[u8],
+    pixels: &mut Vec<Pixel>,
+    state: &mut ParserState,
+) -> Result<(), ParserError> {
+    let red = u8(input)?;
+    let green = u8(input)?;
+    let blue = u8(input)?;
+    let pixel = Pixel {
+        red,
+        green,
+        blue,
+        alpha: state.prev.alpha,
+    };
+    pixels.push(pixel);
+    update_state(pixel, state);
+    Ok(())
+}
+
+fn qoi_op_rgba(
+    input: &mut &[u8],
+    pixels: &mut Vec<Pixel>,
+    state: &mut ParserState,
+) -> Result<(), ParserError> {
+    let red = u8(input)?;
+    let green = u8(input)?;
+    let blue = u8(input)?;
+    let alpha = u8(input)?;
+    let pixel = Pixel {
+        red,
+        green,
+        blue,
+        alpha,
+    };
+    pixels.push(pixel);
+    update_state(pixel, state);
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug)]
 struct ParserState {
     prev: Pixel,
     seen: [Pixel; 64],
+}
+
+fn hash_pixel(pixel: Pixel) -> usize {
+    ((pixel.red * 3 + pixel.green * 5 + pixel.blue * 7 + pixel.alpha * 11) % 64).into()
+}
+
+fn update_state(pixel: Pixel, state: &mut ParserState) {
+    state.prev = pixel;
+    state.seen[hash_pixel(pixel)] = pixel;
 }
 
 type Parser<O, S> = fn(&mut &[u8], &mut O, &mut S) -> Result<(), ParserError>;
