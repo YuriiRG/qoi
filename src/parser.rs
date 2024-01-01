@@ -54,7 +54,13 @@ pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u
     };
 
     while !bytes_left.is_empty() {
-        alt(&mut bytes_left, &mut pixels, &mut state, [qoi_op_rgb]).map_err(|err| match err {
+        alt(
+            &mut bytes_left,
+            &mut pixels,
+            &mut state,
+            [qoi_op_rgb, qoi_op_rgba],
+        )
+        .map_err(|err| match err {
             ParserError::Recoverable => DecoderError::InvalidPixel,
             ParserError::Invalid => DecoderError::TooFewPixels,
         })?;
@@ -68,6 +74,7 @@ fn qoi_op_rgb(
     pixels: &mut Vec<Pixel>,
     state: &mut ParserState,
 ) -> Result<(), ParserError> {
+    tag(&[0b11111110], input)?;
     let red = u8(input)?;
     let green = u8(input)?;
     let blue = u8(input)?;
@@ -87,6 +94,7 @@ fn qoi_op_rgba(
     pixels: &mut Vec<Pixel>,
     state: &mut ParserState,
 ) -> Result<(), ParserError> {
+    tag(&[0b11111111], input)?;
     let red = u8(input)?;
     let green = u8(input)?;
     let blue = u8(input)?;
