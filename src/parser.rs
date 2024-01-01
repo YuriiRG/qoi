@@ -58,7 +58,7 @@ pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u
             &mut bytes_left,
             &mut pixels,
             &mut state,
-            [qoi_op_rgb, qoi_op_rgba],
+            [qoi_op_rgb, qoi_op_rgba, qoi_op_index, qoi_op_diff],
         )
         .map_err(|err| match err {
             ParserError::Recoverable => DecoderError::InvalidPixel,
@@ -104,6 +104,44 @@ fn qoi_op_rgba(
         green,
         blue,
         alpha,
+    };
+    pixels.push(pixel);
+    update_state(pixel, state);
+    Ok(())
+}
+
+fn qoi_op_index(
+    input: &mut &[u8],
+    pixels: &mut Vec<Pixel>,
+    state: &mut ParserState,
+) -> Result<(), ParserError> {
+    let byte = u8(input)?;
+    if (byte & 0b11000000) >> 6 != 0b00 {
+        return Err(ParserError::Recoverable);
+    }
+    let pixel = state.seen[byte as usize];
+    pixels.push(pixel);
+    update_state(pixel, state);
+    Ok(())
+}
+
+fn qoi_op_diff(
+    input: &mut &[u8],
+    pixels: &mut Vec<Pixel>,
+    state: &mut ParserState,
+) -> Result<(), ParserError> {
+    let byte = u8(input)?;
+    if (byte & 0b11000000) >> 6 != 0b01 {
+        return Err(ParserError::Recoverable);
+    }
+    let dr = ((byte & 0b00110000) >> 4).wrapping_sub(2);
+    let dg = ((byte & 0b00001100) >> 2).wrapping_sub(2);
+    let db = (byte & 0b00000011).wrapping_sub(2);
+    let pixel = Pixel {
+        red: state.prev.red.wrapping_add(dr),
+        green: state.prev.green.wrapping_add(dg),
+        blue: state.prev.blue.wrapping_add(db),
+        alpha: state.prev.alpha,
     };
     pixels.push(pixel);
     update_state(pixel, state);
