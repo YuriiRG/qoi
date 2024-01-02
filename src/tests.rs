@@ -150,8 +150,53 @@ fn decode_qoi_op_luma() {
 }
 
 #[test]
+fn decode_dice() {
+    let image_bytes = include_bytes!("../test_images/dice.qoi").as_slice();
+    test_decoding_correctness(image_bytes);
+}
+
+// qoi library from image-rs decodes edgecase incorrectly,
+// but my program does it correctly, so the results are different
+#[test]
+#[ignore]
+fn decode_edgecase() {
+    let image_bytes = include_bytes!("../test_images/edgecase.qoi").as_slice();
+    test_decoding_correctness(image_bytes);
+}
+
+#[test]
+fn decode_kodim10() {
+    let image_bytes = include_bytes!("../test_images/kodim10.qoi").as_slice();
+    test_decoding_correctness(image_bytes);
+}
+
+#[test]
+fn decode_kodim23() {
+    let image_bytes = include_bytes!("../test_images/kodim23.qoi").as_slice();
+    test_decoding_correctness(image_bytes);
+}
+
+#[test]
+fn decode_qoi_logo() {
+    let image_bytes = include_bytes!("../test_images/qoi_logo.qoi").as_slice();
+    test_decoding_correctness(image_bytes);
+}
+
+#[test]
+fn decode_testcard_rgba() {
+    let image_bytes = include_bytes!("../test_images/testcard_rgba.qoi").as_slice();
+    test_decoding_correctness(image_bytes);
+}
+
+#[test]
 fn decode_testcard() {
     let image_bytes = include_bytes!("../test_images/testcard.qoi").as_slice();
+    test_decoding_correctness(image_bytes);
+}
+
+#[test]
+fn decode_wikipedia_008() {
+    let image_bytes = include_bytes!("../test_images/wikipedia_008.qoi").as_slice();
     test_decoding_correctness(image_bytes);
 }
 
@@ -159,7 +204,12 @@ fn test_decoding_correctness(image_bytes: &[u8]) {
     let reference_image = reference_decode(image_bytes)
         .expect("There should be no errors in reference implemenation");
     let decoded_image = decode(image_bytes);
-    decoded_image.save("decoded.png").unwrap();
+    // decoded_image
+    //     .save(format!("decoded{}.png", image_bytes[16]))
+    //     .unwrap();
+    // reference_image
+    //     .save(format!("ref_decoded{}.png", image_bytes[16]))
+    //     .unwrap();
     assert!(
         decoded_image == reference_image,
         "Decoded image differs from the reference"
