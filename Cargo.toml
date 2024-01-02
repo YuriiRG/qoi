@@ -10,7 +10,12 @@ image = { version = "0.24.7", default-features = false }
 thiserror = "1.0.50"
 
 [dev-dependencies]
+criterion = "0.5.1"
 image = { version = "0.24.7", default-features = false, features = [
     "qoi",
     "png",
 ] }
+
+[[bench]]
+name = "benchmark"
+harness = false
