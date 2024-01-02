@@ -91,7 +91,20 @@ fn decode_invalid_magic() {
 }
 
 #[test]
-#[ignore]
+fn decode_qoi_op_run() {
+    let image_bytes = [
+        b"qoif",
+        &1u32.to_be_bytes(),
+        &1u32.to_be_bytes(),
+        [3u8, 0].as_slice(),
+        &[0b11000000],
+        &[0u8, 0, 0, 0, 0, 0, 0, 1],
+    ]
+    .concat();
+    test_decoding_correctness(&image_bytes);
+}
+
+#[test]
 fn decode_testcard() {
     let image_bytes = include_bytes!("../test_images/testcard.qoi").as_slice();
     test_decoding_correctness(image_bytes);
