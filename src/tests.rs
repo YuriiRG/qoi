@@ -105,6 +105,51 @@ fn decode_qoi_op_run() {
 }
 
 #[test]
+fn decode_qoi_op_index() {
+    let image_bytes = [
+        b"qoif",
+        &2u32.to_be_bytes(),
+        &1u32.to_be_bytes(),
+        [3u8, 0].as_slice(),
+        &[0b11111110, 127, 127, 127],
+        &[0b00110001],
+        &[0, 0, 0, 0, 0, 0, 0, 1],
+    ]
+    .concat();
+    test_decoding_correctness(&image_bytes);
+}
+
+#[test]
+fn decode_qoi_op_diff() {
+    let image_bytes = [
+        b"qoif",
+        &2u32.to_be_bytes(),
+        &1u32.to_be_bytes(),
+        [3u8, 0].as_slice(),
+        &[0b11111110, 127, 127, 127],
+        &[0b01000111],
+        &[0, 0, 0, 0, 0, 0, 0, 1],
+    ]
+    .concat();
+    test_decoding_correctness(&image_bytes);
+}
+
+#[test]
+fn decode_qoi_op_luma() {
+    let image_bytes = [
+        b"qoif",
+        &2u32.to_be_bytes(),
+        &1u32.to_be_bytes(),
+        [3u8, 0].as_slice(),
+        &[0b11111110, 127, 127, 127],
+        &[0b10001010, 0b11110001],
+        &[0, 0, 0, 0, 0, 0, 0, 1],
+    ]
+    .concat();
+    test_decoding_correctness(&image_bytes);
+}
+
+#[test]
 fn decode_testcard() {
     let image_bytes = include_bytes!("../test_images/testcard.qoi").as_slice();
     test_decoding_correctness(image_bytes);
@@ -114,6 +159,7 @@ fn test_decoding_correctness(image_bytes: &[u8]) {
     let reference_image = reference_decode(image_bytes)
         .expect("There should be no errors in reference implemenation");
     let decoded_image = decode(image_bytes);
+    decoded_image.save("decoded.png").unwrap();
     assert!(
         decoded_image == reference_image,
         "Decoded image differs from the reference"

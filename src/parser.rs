@@ -94,12 +94,12 @@ pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u
         result.push(pixel.red);
         result.push(pixel.green);
         result.push(pixel.blue);
-        if let Channels::Rgb = header.channels {
+        if let Channels::Rgba = header.channels {
             result.push(pixel.alpha);
         }
     }
 
-    Ok(vec![])
+    Ok(result)
 }
 
 fn qoi_op_rgb<'a>(
@@ -107,7 +107,7 @@ fn qoi_op_rgb<'a>(
     pixels: &mut Vec<Pixel>,
     state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
-    tag(&[0b11111110], input)?;
+    let input = tag(&[0b11111110], input)?;
     let (red, input) = u8(input)?;
     let (green, input) = u8(input)?;
     let (blue, input) = u8(input)?;
@@ -127,7 +127,7 @@ fn qoi_op_rgba<'a>(
     pixels: &mut Vec<Pixel>,
     state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
-    tag(&[0b11111111], input)?;
+    let input = tag(&[0b11111111], input)?;
     let (red, input) = u8(input)?;
     let (green, input) = u8(input)?;
     let (blue, input) = u8(input)?;
@@ -198,7 +198,7 @@ fn qoi_op_luma<'a>(
     let dg = (byte1 & 0b00111111).wrapping_sub(32);
 
     let (byte2, input) = u8(input)?;
-    let dr = dg.wrapping_add((byte2 & 0b11110000 >> 4).wrapping_sub(8));
+    let dr = dg.wrapping_add(((byte2 & 0b11110000) >> 4).wrapping_sub(8));
     let db = dg.wrapping_add((byte2 & 0b00001111).wrapping_sub(8));
 
     let pixel = Pixel {
