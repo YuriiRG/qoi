@@ -226,6 +226,7 @@ fn qoi_op_run<'a>(
 
     let run = (byte & 0b00111111).wrapping_add(1);
     pixels.extend(repeat(state.prev).take(run as usize));
+    update_state(state.prev, state);
 
     Ok(input)
 }
