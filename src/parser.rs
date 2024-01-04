@@ -1,4 +1,4 @@
-use std::{fmt::Display, iter::repeat};
+use std::fmt::Display;
 
 use thiserror::Error;
 
@@ -39,7 +39,12 @@ pub fn parse_image_header(header_bytes: &[u8]) -> Result<Header, DecoderError> {
 }
 
 pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u8>, DecoderError> {
-    let mut pixels = Vec::with_capacity((header.height * header.width) as usize);
+    let result_len = match header.channels {
+        Channels::Rgba => header.height * header.width * 4,
+        Channels::Rgb => header.height * header.width * 3,
+    } as usize;
+
+    let mut pixels = Vec::with_capacity(result_len);
 
     let mut bytes_left = content_bytes;
 
@@ -51,6 +56,10 @@ pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u
             alpha: 255,
         },
         seen: [Default::default(); 64],
+        is_alpha: match header.channels {
+            Channels::Rgba => true,
+            Channels::Rgb => false,
+        },
     };
 
     while !bytes_left.is_empty() {
@@ -77,34 +86,20 @@ pub fn parse_image_content(content_bytes: &[u8], header: Header) -> Result<Vec<u
         }
     }
 
-    if pixels.len() < (header.width * header.height) as usize {
+    if pixels.len() < result_len {
         return Err(DecoderError::TooFewPixels);
     }
 
-    if pixels.len() > (header.width * header.height) as usize {
+    if pixels.len() > result_len {
         return Err(DecoderError::TooManyPixels);
     }
 
-    let mut result = Vec::with_capacity(match header.channels {
-        Channels::Rgba => header.height * header.width * 4,
-        Channels::Rgb => header.height * header.width * 3,
-    } as usize);
-
-    for pixel in pixels {
-        result.push(pixel.red);
-        result.push(pixel.green);
-        result.push(pixel.blue);
-        if let Channels::Rgba = header.channels {
-            result.push(pixel.alpha);
-        }
-    }
-
-    Ok(result)
+    Ok(pixels)
 }
 
 fn qoi_op_rgb<'a>(
     input: &'a [u8],
-    pixels: &mut Vec<Pixel>,
+    pixels: &mut Vec<u8>,
     state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
     let input = tag(&[0b11111110], input)?;
@@ -117,14 +112,14 @@ fn qoi_op_rgb<'a>(
         blue,
         alpha: state.prev.alpha,
     };
-    pixels.push(pixel);
+    push_pixel(pixels, pixel, state.is_alpha);
     update_state(pixel, state);
     Ok(input)
 }
 
 fn qoi_op_rgba<'a>(
     input: &'a [u8],
-    pixels: &mut Vec<Pixel>,
+    pixels: &mut Vec<u8>,
     state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
     let input = tag(&[0b11111111], input)?;
@@ -138,14 +133,14 @@ fn qoi_op_rgba<'a>(
         blue,
         alpha,
     };
-    pixels.push(pixel);
+    push_pixel(pixels, pixel, state.is_alpha);
     update_state(pixel, state);
     Ok(input)
 }
 
 fn qoi_op_index<'a>(
     input: &'a [u8],
-    pixels: &mut Vec<Pixel>,
+    pixels: &mut Vec<u8>,
     state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
     let (byte, input) = u8(input)?;
@@ -154,7 +149,7 @@ fn qoi_op_index<'a>(
     }
 
     let pixel = state.seen[byte as usize];
-    pixels.push(pixel);
+    push_pixel(pixels, pixel, state.is_alpha);
     update_state(pixel, state);
 
     Ok(input)
@@ -162,7 +157,7 @@ fn qoi_op_index<'a>(
 
 fn qoi_op_diff<'a>(
     input: &'a [u8],
-    pixels: &mut Vec<Pixel>,
+    pixels: &mut Vec<u8>,
     state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
     let (byte, input) = u8(input)?;
@@ -179,7 +174,7 @@ fn qoi_op_diff<'a>(
         blue: state.prev.blue.wrapping_add(db),
         alpha: state.prev.alpha,
     };
-    pixels.push(pixel);
+    push_pixel(pixels, pixel, state.is_alpha);
     update_state(pixel, state);
 
     Ok(input)
@@ -187,7 +182,7 @@ fn qoi_op_diff<'a>(
 
 fn qoi_op_luma<'a>(
     input: &'a [u8],
-    pixels: &mut Vec<Pixel>,
+    pixels: &mut Vec<u8>,
     state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
     let (byte1, input) = u8(input)?;
@@ -208,7 +203,7 @@ fn qoi_op_luma<'a>(
         alpha: state.prev.alpha,
     };
 
-    pixels.push(pixel);
+    push_pixel(pixels, pixel, state.is_alpha);
     update_state(pixel, state);
 
     Ok(input)
@@ -216,7 +211,7 @@ fn qoi_op_luma<'a>(
 
 fn qoi_op_run<'a>(
     input: &'a [u8],
-    pixels: &mut Vec<Pixel>,
+    pixels: &mut Vec<u8>,
     state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
     let (byte, input) = u8(input)?;
@@ -225,7 +220,9 @@ fn qoi_op_run<'a>(
     }
 
     let run = (byte & 0b00111111).wrapping_add(1);
-    pixels.extend(repeat(state.prev).take(run as usize));
+    for _ in 0..run {
+        push_pixel(pixels, state.prev, state.is_alpha);
+    }
     update_state(state.prev, state);
 
     Ok(input)
@@ -233,7 +230,7 @@ fn qoi_op_run<'a>(
 
 fn qoi_op_end<'a>(
     input: &'a [u8],
-    #[allow(clippy::ptr_arg)] _pixels: &mut Vec<Pixel>,
+    #[allow(clippy::ptr_arg)] _pixels: &mut Vec<u8>,
     _state: &mut ParserState,
 ) -> Result<&'a [u8], ParserError> {
     let input = tag(&[0u8, 0, 0, 0, 0, 0, 0, 1], input)?;
@@ -245,6 +242,7 @@ fn qoi_op_end<'a>(
 struct ParserState {
     prev: Pixel,
     seen: [Pixel; 64],
+    is_alpha: bool,
 }
 
 fn hash_pixel(pixel: Pixel) -> usize {
@@ -258,6 +256,15 @@ fn hash_pixel(pixel: Pixel) -> usize {
 fn update_state(pixel: Pixel, state: &mut ParserState) {
     state.prev = pixel;
     state.seen[hash_pixel(pixel)] = pixel;
+}
+
+fn push_pixel(pixels: &mut Vec<u8>, pixel: Pixel, is_alpha: bool) {
+    pixels.push(pixel.red);
+    pixels.push(pixel.green);
+    pixels.push(pixel.blue);
+    if is_alpha {
+        pixels.push(pixel.alpha);
+    }
 }
 
 fn tag<'a>(tag: &[u8], input: &'a [u8]) -> Result<&'a [u8], ParserError> {
