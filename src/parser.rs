@@ -220,9 +220,9 @@ fn qoi_op_run<'a>(
     }
 
     let run = (byte & 0b00111111).wrapping_add(1);
-    for _ in 0..run {
-        push_pixel(pixels, state.prev, state.is_alpha);
-    }
+
+    push_pixels(pixels, state.prev, run as usize, state.is_alpha);
+
     update_state(state.prev, state);
 
     Ok(input)
@@ -264,6 +264,23 @@ fn push_pixel(pixels: &mut Vec<u8>, pixel: Pixel, is_alpha: bool) {
     pixels.push(pixel.blue);
     if is_alpha {
         pixels.push(pixel.alpha);
+    }
+}
+
+fn push_pixels(pixels: &mut Vec<u8>, pixel: Pixel, run: usize, is_alpha: bool) {
+    if is_alpha {
+        for _ in 0..run {
+            pixels.push(pixel.red);
+            pixels.push(pixel.green);
+            pixels.push(pixel.blue);
+            pixels.push(pixel.alpha);
+        }
+    } else {
+        for _ in 0..run {
+            pixels.push(pixel.red);
+            pixels.push(pixel.green);
+            pixels.push(pixel.blue);
+        }
     }
 }
 
